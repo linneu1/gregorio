@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jogo da Luta - Yasmin (5º B)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: #0d1b1e;
+      color: #e0f2f1;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 10px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    h1 {
+      color: #00e676;
+      font-size: 1.8rem;
+      text-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
+    }
+    .credits {
+      font-size: 0.95rem;
+      color: #80cbc4;
+    }
+    #game-container {
+      position: relative;
+      border: 4px solid #2e7d32;
+      border-radius: 8px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+      overflow: hidden;
+      background: #000;
+    }
+    canvas {
+      display: block;
+      background: linear-gradient(to bottom, #0a2e1d, #03140c);
+    }
+    #ui-bar {
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: #1b382b;
+      border-top: 2px solid #2e7d32;
+      font-weight: bold;
+      font-size: 0.95rem;
+    }
+    .controls-hint {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      color: #a7ffeb;
+      text-align: center;
+      max-width: 600px;
+    }
+    .key {
+      background: #26a69a;
+      color: #000;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Jogo da Luta</h1>
+    <div class="credits">Criador: <strong>Yasmin (5º B)</strong> | Protagonista: <strong>Daniel</strong></div>
+  </header>
+
+  <div id="game-container">
+    <canvas id="canvas" width="600" height="400"></canvas>
+    <div id="ui-bar">
+      <div>Pontuação: <span id="score-val" style="color: #ffd54f;">0</span></div>
+      <div>Item Mágico: <span id="items-val" style="color: #40c4ff;">0</span></div>
+      <div>Especial: <span id="cooldown-val" style="color: #b388ff;">PRONTO (ESPAÇO)</span></div>
+    </div>
+  </div>
+
+  <div class="controls-hint">
+    Controles: <span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> ou <span class="key">Setas</span> para mover. | <span class="key">ESPAÇO</span> para usar o <strong>Buraco Negro</strong> e chamar seu Amigo!
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const scoreEl = document.getElementById('score-val');
+    const itemsEl = document.getElementById('items-val');
+    const cooldownEl = document.getElementById('cooldown-val');
+
+    // Estado do Jogo
+    let score = 0;
+    let itemsCollected = 0;
+    let gameOver = false;
+
+    // Cooldown do Especial (Buraco Negro)
+    let specialCooldown = 0;
+    const SPECIAL_MAX_COOLDOWN = 600; // ~10 segundos a 60fps
+
+    // Daniel (Personagem Principal)
+    const daniel = {
+      x: 100,
+      y: 200,
+      radius: 18,
+      speed: 4,
+      vx: 0,
+      vy: 0
+    };
+
+    // Amigo (Invocado pelo Buraco Negro)
+    const amigo = {
+      active: false,
+      x: 0,
+      y: 0,
+      radius: 14,
+      duration: 0
+    };
+
+    // Efeito Visual do Buraco Negro
+    const blackHole = {
+      active: false,
+      x: 0,
+      y: 0,
+      radius: 0,
+      maxRadius: 80,
+      duration: 0
+    };
+
+    // Teclas pressionadas
+    const keys = {};
+
+    // Listas de Obstáculos e Itens da Floresta
+    const obstacles = [];
+    const items = [];
+    const trees = [];
+
+    // Fundo da Floresta Mágica (Árvores decorativas)
+    for (let i = 0; i < 15; i++) {
+      trees.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: 15 + Math.random() * 20
+      });
+    }
+
+    // Event Listeners para Controles
+    window.addEventListener('keydown', (e) => {
+      keys[e.code] = true;
+      if (e.code === 'Space') {
+        activateBlackHole();
+      }
+      if (gameOver && e.code === 'KeyR') {
+        restartGame();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      keys[e.code] = false;
+    });
+
+    function activateBlackHole() {
+      if (specialCooldown === 0 && !gameOver) {
+        specialCooldown = SPECIAL_MAX_COOLDOWN;
+        
+        // Ativa efeito de Buraco Negro
+        blackHole.active = true;
+        blackHole.x = daniel.x;
+        blackHole.y = daniel.y;
+        blackHole.radius = 10;
+        blackHole.duration = 120; // 2 segundos
+
+        // Invoca o Amigo ao lado
+        amigo.active = true;
+        amigo.x = daniel.x - 30;
+        amigo.y = daniel.y - 30;
+        amigo.duration = 360; // Fica por 6 segundos limpando a área
+      }
+    }
+
+    function spawnObstacle() {
+      const size = 15 + Math.random() * 15;
+      obstacles.push({
+        x: canvas.width + size,
+        y: Math.random() * (canvas.height - size * 2) + size,
+        speed: 2.5 + Math.random() * 2.5,
+        radius: size
+      });
+    }
+
+    function spawnItem() {
+      items.push({
+        x: canvas.width + 20,
+        y: Math.random() * (canvas.height - 40) + 20,
+        speed: 2,
+        radius: 10
+      });
+    }
+
+    let frameCount = 0;
+
+    function update() {
+      if (gameOver) return;
+
+      frameCount++;
+      score++;
+
+      // Atualiza Cooldown
+      if (specialCooldown > 0) {
+        specialCooldown--;
+        const pct = Math.ceil((specialCooldown / SPECIAL_MAX_COOLDOWN) * 100);
+        cooldownEl.innerText = `Carregando (${pct}%)`;
+        cooldownEl.style.color = '#ff5252';
+      } else {
+        cooldownEl.innerText = 'PRONTO (ESPAÇO)';
+        cooldownEl.style.color = '#b388ff';
+      }
+
+      // Movimentação do Daniel
+      daniel.vx = 0;
+      daniel.vy = 0;
+
+      if (keys['KeyW'] || keys['ArrowUp']) daniel.vy = -daniel.speed;
+      if (keys['KeyS'] || keys['ArrowDown']) daniel.vy = daniel.speed;
+      if (keys['KeyA'] || keys['ArrowLeft']) daniel.vx = -daniel.speed;
+      if (keys['KeyD'] || keys['ArrowRight']) daniel.vx = daniel.speed;
+
+      daniel.x += daniel.vx;
+      daniel.y += daniel.vy;
+
+      // Limites da Tela
+      daniel.x = Math.max(daniel.radius, Math.min(canvas.width - daniel.radius, daniel.x));
+      daniel.y = Math.max(daniel.radius, Math.min(canvas.height - daniel.radius, daniel.y));
+
+      // Atualiza Buraco Negro
+      if (blackHole.active) {
+        blackHole.duration--;
+        if (blackHole.radius < blackHole.maxRadius) {
+          blackHole.radius += 2;
+        }
+        if (blackHole.duration <= 0) {
+          blackHole.active = false;
+        }
+      }
+
+      // Atualiza Amigo (Segue o Daniel e destrói obstáculos próximos)
+      if (amigo.active) {
+        amigo.duration--;
+        // Suave perseguição
+        amigo.x += (daniel.x - 35 - amigo.x) * 0.1;
+        amigo.y += (daniel.y - 35 - amigo.y) * 0.1;
+
+        if (amigo.duration <= 0) {
+          amigo.active = false;
+        }
+      }
+
+      // Gerar Inimigos e Itens
+      if (frameCount % 45 === 0) spawnObstacle();
+      if (frameCount % 120 === 0) spawnItem();
+
+      // Mover Árvores do Fundo (Efeito Paralaxe)
+      trees.forEach(tree => {
+        tree.x -= 0.5;
+        if (tree.x < -tree.size) tree.x = canvas.width + tree.size;
+      });
+
+      // Gerenciar Obstáculos
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const obs = obstacles[i];
+        obs.x -= obs.speed;
+
+        // Se o Buraco Negro estiver ativo, atrai e elimina obstáculos
+        if (blackHole.active) {
+          const dxBH = blackHole.x - obs.x;
+          const dyBH = blackHole.y - obs.y;
+          const distBH = Math.hypot(dxBH, dyBH);
+          if (distBH < blackHole.radius + obs.radius) {
+            obstacles.splice(i, 1);
+            score += 20;
+            continue;
+          }
+        }
+
+        // Se o Amigo estiver ativo, ele destrói obstáculos ao tocar neles
+        if (amigo.active) {
+          const dxA = amigo.x - obs.x;
+          const dyA = amigo.y - obs.y;
+          const distA = Math.hypot(dxA, dyA);
+          if (distA < amigo.radius + obs.radius) {
+            obstacles.splice(i, 1);
+            score += 30;
+            continue;
+          }
+        }
+
+        // Colisão com Daniel
+        const dx = daniel.x - obs.x;
+        const dy = daniel.y - obs.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < daniel.radius + obs.radius) {
+          gameOver = true;
+        }
+
+        // Remover quando sai da tela
+        if (obs.x < -obs.radius) {
+          obstacles.splice(i, 1);
+        }
+      }
+
+      // Gerenciar Itens
+      for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        item.x -= item.speed;
+
+        // Colisão com Daniel
+        const dx = daniel.x - item.x;
+        const dy = daniel.y - item.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < daniel.radius + item.radius) {
+          itemsCollected++;
+          score += 100;
+          items.splice(i, 1);
+          continue;
+        }
+
+        if (item.x < -item.radius) {
+          items.splice(i, 1);
+        }
+      }
+
+      // Atualizar Interface
+      scoreEl.innerText = score;
+      itemsEl.innerText = itemsCollected;
+    }
+
+    function draw() {
+      // Limpa Tela
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Desenhar Árvores no Fundo (Floresta Mágica)
+      trees.forEach(tree => {
+        ctx.fillStyle = 'rgba(20, 80, 50, 0.4)';
+        ctx.beginPath();
+        ctx.arc(tree.x, tree.y, tree.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Desenhar Buraco Negro
+      if (blackHole.active) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(blackHole.x, blackHole.y, blackHole.radius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(30, 0, 50, 0.8)';
+        ctx.fill();
+        ctx.strokeStyle = '#b388ff';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Desenhar Amigo (Se ativo)
+      if (amigo.active) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(amigo.x, amigo.y, amigo.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#00e5ff';
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Rosto do Amigo
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(amigo.x - 4, amigo.y - 3, 2, 0, Math.PI * 2);
+        ctx.arc(amigo.x + 4, amigo.y - 3, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Riso
+        ctx.beginPath();
+        ctx.arc(amigo.x, amigo.y + 2, 5, 0, Math.PI);
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
+      // Desenhar Daniel
+      ctx.save();
+      // Corpo / Cabeça
+      ctx.beginPath();
+      ctx.arc(daniel.x, daniel.y, daniel.radius, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffcc80'; // Cor de pele
+      ctx.fill();
+      ctx.strokeStyle = '#d81b60';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Olho Esquerdo
+      ctx.fillStyle = '#212121';
+      ctx.beginPath();
+      ctx.arc(daniel.x - 6, daniel.y - 4, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Olho Direito + RISCO NO OLHO (Cicatriz do Daniel)
+      ctx.beginPath();
+      ctx.arc(daniel.x + 6, daniel.y - 4, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cicatriz / Risco Vermelho no olho direito
+      ctx.strokeStyle = '#b71c1c';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(daniel.x + 6, daniel.y - 12);
+      ctx.lineTo(daniel.x + 6, daniel.y + 4);
+      ctx.stroke();
+
+      // Boca
+      ctx.beginPath();
+      ctx.arc(daniel.x, daniel.y + 6, 6, 0.1 * Math.PI, 0.9 * Math.PI);
+      ctx.strokeStyle = '#212121';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.restore();
+
+      // Desenhar Obstáculos (Criaturas / Monstrinhos da Floresta)
+      obstacles.forEach(obs => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(obs.x, obs.y, obs.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#d32f2f';
+        ctx.fill();
+        ctx.strokeStyle = '#ff8a80';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Espinhos no obstáculo
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(obs.x - 4, obs.y - 2, 3, 0, Math.PI * 2);
+        ctx.arc(obs.x + 4, obs.y - 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Desenhar Itens Mágicos (Orbes de Energia)
+      items.forEach(item => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(item.x, item.y, item.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffeb3b';
+        ctx.fill();
+        ctx.shadowColor = '#ffff00';
+        ctx.shadowBlur = 10;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      });
+
+      // Tela de Game Over
+      if (gameOver) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#ff5252';
+        ctx.font = 'bold 30px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Fim de Jogo!', canvas.width / 2, canvas.height / 2 - 20);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '18px sans-serif';
+        ctx.fillText(`Pontuação Final: ${score}`, canvas.width / 2, canvas.height / 2 + 15);
+        ctx.fillText(`Itens Coletados: ${itemsCollected}`, canvas.width / 2, canvas.height / 2 + 40);
+
+        ctx.fillStyle = '#00e676';
+        ctx.fillText('Pressione R para Jogar Novamente', canvas.width / 2, canvas.height / 2 + 80);
+      }
+    }
+
+    function restartGame() {
+      score = 0;
+      itemsCollected = 0;
+      gameOver = false;
+      specialCooldown = 0;
+      obstacles.length = 0;
+      items.length = 0;
+      daniel.x = 100;
+      daniel.y = 200;
+      amigo.active = false;
+      blackHole.active = false;
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    loop();
+  </script>
+</body>
+</html>
